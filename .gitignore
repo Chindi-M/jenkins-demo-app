@@ -1,0 +1,63 @@
+# -------------------------------------------------------------
+# Dependency Directories
+# -------------------------------------------------------------
+# Node.js module dependencies
+/node_modules
+# Yarn v2/v3/v4 lockfile
+.yarn/cache
+.pnp.*
+
+# -------------------------------------------------------------
+# Logs and Build Artifacts
+# -------------------------------------------------------------
+# npm debug logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Production/Distribution builds
+/dist
+/build
+/out
+/release
+
+# Temporary build directory (often used by bundlers)
+/tmp
+
+# -------------------------------------------------------------
+# Configuration and Environment Files
+# -------------------------------------------------------------
+# Environment variables (ALWAYS ignore this)
+.env
+.env.development
+.env.production
+.env.*.local
+.DS_Store # Mac operating system files
+Thumbs.db # Windows operating system files
+
+# -------------------------------------------------------------
+# Testing and Coverage
+# -------------------------------------------------------------
+/coverage
+.nyc_output
+
+# -------------------------------------------------------------
+# IDE and Editor Files
+# -------------------------------------------------------------
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history
+
+# IntelliJ/Webstorm (JetBrains)
+.idea/
+*.iml
+
+# Sublimetext
+*.sublime-project
+*.sublime-workspace
