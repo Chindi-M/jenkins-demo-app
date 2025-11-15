@@ -1,10 +1,14 @@
+// Define the name of the NodeJS installation configured in Jenkins
+def NODEJS_TOOL_NAME = 'NodeJS 18' 
+
 pipeline {
     agent any
     
     environment {
         // App configuration
         APP_NAME = 'jenkins-demo-app'
-        VERSION = "${env.BUILD_NUMBER}"
+        // VERSION will be overwritten in the 'Version Bump' stage
+        VERSION = "${env.BUILD_NUMBER}" 
         DOCKER_IMAGE = "${APP_NAME}:${VERSION}"
         
         // Environment ports
@@ -14,6 +18,9 @@ pipeline {
         // Container names
         STAGING_CONTAINER = "${APP_NAME}-staging"
         PROD_CONTAINER = "${APP_NAME}-production"
+        
+        // New variable to hold the bumped semantic version
+        NEW_APP_VERSION = '' 
     }
     
     stages {
@@ -24,43 +31,65 @@ pipeline {
             }
         }
         
+        // --- NEW STAGE: Bump Version ---
+        stage('Version Bump') {
+            steps {
+                echo '🔖 Bumping version and extracting new version...'
+                script {
+                    // 1. Use the 'tool' step to set the environment for npm
+                    tool(NODEJS_TOOL_NAME) { 
+                        // 2. Bump the patch version in package.json
+                        sh 'npm version patch -m "CI: Bumped to %s"' 
+                        
+                        // 3. Read the new version from package.json and store it
+                        // This uses a multi-line script for safe variable assignment
+                        NEW_APP_VERSION = sh(
+                            returnStdout: true,
+                            script: "npm pkg get version | tr -d '\"'" // Use npm to get version, trim quotes
+                        ).trim()
+                        
+                        // 4. Update the global environment variables with the new version
+                        env.VERSION = "${NEW_APP_VERSION}"
+                        env.DOCKER_IMAGE = "${env.APP_NAME}:${env.VERSION}"
+                    }
+                    echo "✅ New Application Version: ${env.VERSION}"
+                    echo "✅ New Docker Image Tag: ${env.DOCKER_IMAGE}"
+                }
+            }
+        }
+        // -------------------------------
+        
         stage('Install Dependencies') {
             steps {
                 echo '📦 Installing dependencies...'
-                sh 'npm ci'
-            }
-        }
-        
-        stage('Lint') {
-            steps {
-                echo '🔍 Running linter...'
-                sh 'npm run lint'
-            }
-        }
-        
-        stage('Unit Tests') {
-            steps {
-                echo '🧪 Running unit tests...'
-                sh 'npm test'
-            }
-            post {
-                always {
-                    // Archive test results if you add JUnit reporter
-                    echo 'Tests completed'
+                // 🔑 All subsequent npm commands are wrapped in the 'tool' step
+                tool(NODEJS_TOOL_NAME) { 
+                    sh 'npm ci'
                 }
             }
         }
         
-        stage('Security Scan') {
+        stage('Lint & Test') {
             steps {
-                echo '🔒 Running security audit...'
-                sh 'npm audit --audit-level=moderate || true'
+                tool(NODEJS_TOOL_NAME) {
+                    echo '🔍 Running linter...'
+                    sh 'npm run lint'
+                    echo '🧪 Running unit tests...'
+                    sh 'npm test'
+                    echo '🔒 Running security audit...'
+                    sh 'npm audit --audit-level=moderate || true'
+                }
+            }
+            post {
+                always {
+                    echo 'Tests and scans completed'
+                }
             }
         }
         
         stage('Build Docker Image') {
             steps {
-                echo '🐋 Building Docker image...'
+                echo "🐋 Building Docker image ${env.DOCKER_IMAGE}..."
                 script {
                     sh """
                         docker build \
@@ -73,6 +102,8 @@ pipeline {
             }
         }
         
+        // ... (Remaining deployment stages are unchanged but will use the new VERSION and DOCKER_IMAGE) ...
+        
         stage('Deploy to Staging') {
             steps {
                 echo '🚀 Deploying to staging environment...'
@@ -82,7 +113,6 @@ pipeline {
                         docker stop ${STAGING_CONTAINER} || true
                         docker rm ${STAGING_CONTAINER} || true
                     """
-                    
                     // Run new staging container
                     sh """
                         docker run -d \
@@ -92,8 +122,6 @@ pipeline {
                         -e ENVIRONMENT=staging \
                         ${DOCKER_IMAGE}
                     """
-                    
-                    // Wait for container to be ready
                     sleep(time: 5, unit: 'SECONDS')
                 }
             }
@@ -113,7 +141,7 @@ pipeline {
         
         stage('Approval') {
             steps {
-                echo '⏸️  Waiting for deployment approval...'
+                echo '⏸️  Waiting for deployment approval...'
                 input message: 'Deploy to Production?', ok: 'Deploy'
             }
         }
@@ -127,7 +155,6 @@ pipeline {
                         docker stop ${PROD_CONTAINER} || true
                         docker rm ${PROD_CONTAINER} || true
                     """
-                    
                     // Run new production container
                     sh """
                         docker run -d \
@@ -137,8 +164,6 @@ pipeline {
                         -e ENVIRONMENT=production \
                         ${DOCKER_IMAGE}
                     """
-                    
-                    // Wait for container to be ready
                     sleep(time: 5, unit: 'SECONDS')
                 }
             }
@@ -160,7 +185,6 @@ pipeline {
             steps {
                 echo '🧹 Cleaning up old Docker images...'
                 script {
-                    // Keep last 5 images
                     sh """
                         docker images ${APP_NAME} --format "{{.ID}} {{.Tag}}" | \
                         grep -v latest | \
@@ -175,13 +199,12 @@ pipeline {
     
     post {
         success {
-            echo '✅ Pipeline completed successfully!'
+            echo "✅ Pipeline completed successfully! Deployed version: ${env.VERSION}"
             echo "🌐 Staging: http://localhost:${STAGING_PORT}"
             echo "🌐 Production: http://localhost:${PRODUCTION_PORT}"
         }
         failure {
-            echo '❌ Pipeline failed!'
-            // Rollback staging if needed
+            echo '❌ Pipeline failed! Rolling back staging...'
             script {
                 sh "docker stop ${STAGING_CONTAINER} || true"
                 sh "docker rm ${STAGING_CONTAINER} || true"
@@ -189,8 +212,6 @@ pipeline {
         }
         always {
             echo '📊 Pipeline execution completed'
-            // Clean workspace if needed
-            // cleanWs()
         }
     }
 }
